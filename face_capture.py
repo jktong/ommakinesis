@@ -36,20 +36,29 @@ def main():
             roi_color = frame[y+h/6:y+h/2, x+w/8:x+w*7/8]
             # Detect eyes
             eyes = eye_cascade.detectMultiScale(
-            roi_gray,
-            scaleFactor=1.09,
-            minNeighbors=5,
-            #maxSize=(w/6,y/5),
-            flags=cv2.cv.CV_HAAR_SCALE_IMAGE
-            )
+                roi_gray,
+                scaleFactor=1.09,
+                minNeighbors=5,
+                #maxSize=(w/6,y/5),
+                flags=cv2.cv.CV_HAAR_SCALE_IMAGE
+                )
             if len(eyes) > 0:
-                if len(eyes) > 2:
-                    eyes = get_likeliest_eyes(eyes, face)
+                #print eyes
+                eyes = get_likeliest_eyes(eyes, face)
+                if len(eyes) != 2:
+                    continue
+                if abs(np.log2(box_area(eyes[0])/box_area(eyes[1]))) > 1:
+                    # area of eye boxes can't differ by more than factor of 2
+                    continue
                 for (ex, ey, ew, eh) in eyes:
                     # Draw rectangles around eyes
-                    cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 255, 255), 2)
+                    cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 0, 255), 2)
+                    cv2.line(roi_color, (ex+ew/2,ey), (ex+ew/2,ey+eh), (255, 0, 0), 2)
+                    eyes_midX = get_eyes_midpointX(eyes[0], eyes[1], face)
+                    cv2.line(frame, (eyes_midX, y), (eyes_midX, y+h), (255, 0, 0), 2)
                 # Draw a rectangle around the face
                 cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                cv2.line(frame, (x+w/2,y), (x+w/2,y+h), (0, 255, 0), 2)
 
         # Display the resulting frame
         cv2.imshow('frame', frame)
@@ -63,27 +72,29 @@ def main():
 
 def get_likeliest_eyes(eyes, face):
     face_centerX = face[0] + face[2]/2
-    #best_eyes = np.empty((2,4))
     best_eyes = []
     best_dist = np.inf
     for i in xrange(len(eyes)):
         for j in xrange(i+1, len(eyes)):
-            if ((face_centerX-(eyes[i][0]+eyes[i][2]/2))*
-                (face_centerX-(eyes[j][0]+eyes[j][2]/2))) > 0:
+            if ((face_centerX-get_eye_centerX(eyes[i], face))*
+                (face_centerX-get_eye_centerX(eyes[j], face))) > 0:
                 # centers of two eyes on same side of face
                 continue
-            eyes_midX = get_eyes_midpointX(eyes[i],eyes[j])
+            eyes_midX = get_eyes_midpointX(eyes[i],eyes[j], face)
             new_dist = abs(face_centerX - eyes_midX)
             if best_dist > new_dist:
                 best_eyes = [eyes[i],eyes[j]]
                 best_dist = new_dist
     return best_eyes
 
-def get_eye_centerX(eye):
-    return eye[0] + eye[2]/2
+def get_eye_centerX(eye, face):
+    return face[0] + face[2]/8 + eye[0] + eye[2]/2
     
-def get_eyes_midpointX(e1, e2):
-    return (get_eye_centerX(e1) + get_eye_centerX(e2))/2
+def get_eyes_midpointX(e1, e2, face):
+    return (get_eye_centerX(e1, face) + get_eye_centerX(e2, face))/2
+
+def box_area(box):
+    return box[2]*box[3]
 
 if __name__=="__main__":
     main()
