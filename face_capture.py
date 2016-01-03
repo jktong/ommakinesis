@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import numpy as np
+from scipy.spatial.distance import euclidean
 import cv2
 import sys
 
@@ -11,10 +12,11 @@ eye_cascade = cv2.CascadeClassifier(HAARCASCADES_DIR + 'haarcascade_eye.xml')
 
 def main():
     cap = cv2.VideoCapture(0)
+    eyes = []
 
     while(True):    
         # Capture frame by frame
-        ret, orig_frame = cap.read()    
+        ret, orig_frame = cap.read()
         # Flip image around y-axis to mirror capture
         frame = cv2.flip(orig_frame,1)
         # Turn to greyscale
@@ -29,36 +31,38 @@ def main():
             minSize=(250,250),
             flags=cv2.cv.CV_HAAR_SCALE_IMAGE
             )
+        faces = sort_likeliest_faces(faces, frame)
         for (x, y, w, h) in faces:
             face = (x, y, w, h)
             # Restrict area to search for eyes significantly improves reliability
             roi_gray = gray[y+h/6:y+h/2, x+w/8:x+w*7/8]
             roi_color = frame[y+h/6:y+h/2, x+w/8:x+w*7/8]
             # Detect eyes
-            eyes = eye_cascade.detectMultiScale(
+            new_eyes = eye_cascade.detectMultiScale(
                 roi_gray,
                 scaleFactor=1.09,
                 minNeighbors=5,
                 #maxSize=(w/6,y/5),
                 flags=cv2.cv.CV_HAAR_SCALE_IMAGE
                 )
-            if len(eyes) > 0:
-                #print eyes
-                eyes = get_likeliest_eyes(eyes, face)
-                if len(eyes) != 2:
-                    continue
-                if abs(np.log2(box_area(eyes[0])/box_area(eyes[1]))) > 1:
-                    # area of eye boxes can't differ by more than factor of 2
-                    continue
-                for (ex, ey, ew, eh) in eyes:
-                    # Draw rectangles around eyes
-                    cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 0, 255), 2)
-                    cv2.line(roi_color, (ex+ew/2,ey), (ex+ew/2,ey+eh), (255, 0, 0), 2)
-                    eyes_midX = get_eyes_midpointX(eyes[0], eyes[1], face)
-                    cv2.line(frame, (eyes_midX, y), (eyes_midX, y+h), (255, 0, 0), 2)
-                # Draw a rectangle around the face
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.line(frame, (x+w/2,y), (x+w/2,y+h), (0, 255, 0), 2)
+            new_eyes = get_likeliest_eyes(new_eyes, face)
+            if (len(new_eyes) == 2 and
+                abs(np.log2(box_area(new_eyes[0])/box_area(new_eyes[1]))) < 1):
+                # area of eye boxes can't differ by more than factor of 2
+                eyes = new_eyes
+            if len(eyes) != 2:
+                # still haven't had the first update
+                continue
+            for (ex, ey, ew, eh) in eyes:
+                # Draw rectangles around eyes
+                cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 0, 255), 2)
+                cv2.line(roi_color, (ex+ew/2,ey), (ex+ew/2,ey+eh), (255, 0, 0), 2)
+                eyes_midX = get_eyes_midpointX(eyes[0], eyes[1], face)
+                cv2.line(frame, (eyes_midX, y), (eyes_midX, y+h), (255, 0, 0), 2)
+            # Draw a rectangle around the face
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.line(frame, (x+w/2,y), (x+w/2,y+h), (0, 255, 0), 2)
+            break
 
         # Display the resulting frame
         cv2.imshow('frame', frame)
@@ -69,6 +73,16 @@ def main():
     # When everything done, release the capture
     cap.release()
     cv2.destroyAllWindows()
+
+def sort_likeliest_faces(faces, frame):
+    frame_center = np.array([np.size(frame,1)/2,np.size(frame,0)/2])
+    face_dists = [(euclidean(get_face_center(face),frame_center),face) for face in faces]
+    face_dists.sort()
+    return [face for dist, face in face_dists]
+
+def get_face_center(face):
+    x, y, w, h = face
+    return np.array([x + w/2, y + h/2])
 
 def get_likeliest_eyes(eyes, face):
     face_centerX = face[0] + face[2]/2
